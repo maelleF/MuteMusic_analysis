@@ -1,4 +1,5 @@
 # Build results #
 ###################
-data/*.tsv
+data/*
+figures/*
 .ipynb_checkpoints/
