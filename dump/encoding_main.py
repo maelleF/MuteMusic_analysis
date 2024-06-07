@@ -8,6 +8,7 @@ from torchvision.models import feature_extraction
 from torch.utils.data import DataLoader
 
 import encoding_utils as eu
+import models_class as mc
 import visualisation_utils as visu
 
 #-----------env args------------------------------------------------------------
@@ -61,40 +62,8 @@ model_feat = feature_extraction.create_feature_extractor(model, return_nodes=ret
 
 #----------create dataset and train/val/test fractions (WIP)------------------------------
 
-#specific class for model:
-class soundnet_dataset(eu.audio_encoding_dataset):
-    def __init__(self, data, tr, sr):
-        super().__init__(data, tr, sr)
-        #self.layer = layer
-
-    def convert_input_to_tensor(self):
-        X_converted = [Tensor(x).view(1,-1,1) for x in self.X_data]
-        self.X_data = X_converted
-    
-    def __temporal_conversion__(self, y, nb_tr, cut='end'):
-        #depend on the output layer
-        #for layer conv7
-        if cut == 'start':
-            y = y[len(y)-nb_tr:,:]
-        elif cut == 'end':
-            y = y[:nb_tr,:]
-        return(y)
-
-    def redimension_output(self, Y_pred, Y_real, cut='end'):
-        Y_pred_converted = Y_pred.permute(2,1,0,3).squeeze(axis=(2,3)).numpy()
-        Y_real_converted = Y_real.squeeze(axis=0).numpy() 
-        if len(Y_pred_converted) > len(Y_real_converted):
-            #print('redimension prediction outputs to real outputs')
-            Y_pred_converted = self.__temporal_conversion__(Y_pred_converted, nb_tr=len(Y_real_converted), cut=cut)
-        
-        elif len(Y_pred_converted) < len(Y_real_converted):
-            #print('redimension real outputs to predicted outputs')
-            Y_real_converted = self.__temporal_conversion__(Y_real_converted, nb_tr=len(Y_pred_converted), cut=cut)
-
-        return(Y_pred_converted, Y_real_converted)
-
 #create dataset
-encoding_dataset = soundnet_dataset(selected_wavbold, tr=tr, sr=sr)
+encoding_dataset = mc.soundnet_dataset(selected_wavbold, tr=tr, sr=sr)
 encoding_dataset.same_size_x_y(cut='end')
 encoding_dataset.segment_audio_dataset(segment_size=temporal_size)
 encoding_dataset.convert_input_to_tensor()
@@ -128,16 +97,3 @@ visu.surface_fig(r2, vmax=r2_max_threshold, threshold=0.00005, cmap='turbo', sym
 
 savepath = f'./figures/{sub}_generalisation_{dataset}_{category}.png'
 plt.savefig(savepath)
-
-#-----------------a voir avec mutemusic------------------------------------------------------------- 
-#extract X and Y data for prediction + check for empty data (WIP: move to previous later)
-#empty_pair = []
-#for i, (wav, bold) in enumerate(selected_wavbold):
-#    if wav.shape[0] == 0 and bold.shape[0] == 0:
-#        empty_pair.append(i)
-
-#correct_wavbold = [(wav, bold) for (wav, bold) in selected_wavbold if wav.shape[0] != 0]
-#print(empty_pair)
-
-#correct_data_df = data_df.drop(empty_pair).reset_index()
-#correct_data_df.drop(['index', 'Unnamed: 0'], axis='columns', inplace=True)

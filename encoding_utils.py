@@ -1,14 +1,7 @@
-import os, torch
+import os, torch, librosa, pandas
 import numpy as np
-
 from torch import nn
-from torchvision.models import feature_extraction
-from torch.utils.data import Dataset, DataLoader
-
-#ridge regression
-from sklearn.metrics import r2_score
-from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import GroupKFold
+from torch.utils.data import Dataset
 
 import sys
 sys.path.append('/home/maellef/git/cNeuromod_encoding_2020')
@@ -19,7 +12,8 @@ MIST_path = '/home/maellef/DataBase/fMRI_parcellations/MIST_parcellation/Parcell
 #specific aux soundnet models
 def load_sub_model(sub, scale, conv, models_path, no_init=False):
     for model_name in os.listdir(models_path):
-        if '.pt' in model_name and conv in model_name and sub in model_name and scale in model_name:
+        conv_bool = ('_f_' not in model_name) if conv == 'soundnet' else (conv in model_name)
+        if '.pt' in model_name and conv_bool and sub in model_name and scale in model_name:
             model_path = os.path.join(models_path, model_name)
             modeldict = torch.load(model_path, map_location=torch.device('cpu'))
             model_net = encod.SoundNetEncoding_conv(out_size=modeldict['out_size'],output_layer=modeldict['output_layer'],
@@ -49,6 +43,10 @@ class audio_encoding_dataset(encoding_dataset):
         super().__init__(data, tr)
         self.sr = sr
         self.tr_conversion = round(self.tr*self.sr)
+    
+    def resample_input(self, input_sr):
+        resampled_X = [librosa.resample(x, orig_sr=input_sr, target_sr=self.sr) for x in self.X_data]
+        self.X_data = resampled_X
     
     def same_size_x_y(self, cut='end'):
         for i, (x, y) in enumerate(zip(self.X_data, self.Y_data)):
@@ -108,9 +106,47 @@ def select_df_index(df, **selectors):
     
     conditions = True
     for column_name, val in selectors.items():
-        val = val if isinstance(val, list) else [val]
+        val = val if isinstance(val, (list, np.ndarray)) else [val]        
         selected_items = df[column_name].unique() if val[0]=='all' else val
         condition = df[column_name].isin(selected_items)
         conditions &= (condition)
     i_selection = df.loc[conditions].index.values
     return i_selection
+
+def extract_selected_data(data, data_df, **selectors):
+    selection_i = select_df_index(data_df, **selectors)
+    selected_data = [(x, y) for i, (x, y) in enumerate(data) if i in selection_i]
+    selected_df = data_df.iloc[selection_i]
+    return (selected_data, selected_df)
+
+def extract_silence_timestamps(track_df, tr, unit='second'):
+    tracks_silence = []
+    sr = track_df['sr']
+    
+    timestamps = {'duration':[track_df['S1_duration'], track_df['S2_duration'], track_df['S3_duration'], track_df['S4_duration']],
+                    'start':[track_df['S1_start'], track_df['S2_start'], track_df['S3_start'], track_df['S4_start']],
+                    'stop':[track_df['S1_stop'], track_df['S2_stop'], track_df['S3_stop'], track_df['S4_stop']]}
+    siltt_df = pandas.DataFrame(timestamps).sort_values(by='start').dropna()
+
+    music = 0
+    for i, silence_tt in siltt_df.iterrows():
+        if unit == 'second':
+            start = silence_tt['start']
+            stop = silence_tt['stop']
+            dur = silence_tt['duration']
+        elif unit == 'sr':
+            start = silence_tt['start']*sr
+            stop = silence_tt['stop']*sr
+            dur = silence_tt['duration']*sr
+        elif unit == 'tr':
+            start = silence_tt['start']/tr
+            stop = silence_tt['stop']/tr
+            dur = silence_tt['duration']/tr
+        
+        silence_start = start if unit == 'second' else round(start)
+        silence_stop = stop if unit == 'second' else round(stop)
+        silence_duration = dur if unit == 'second' else round(dur)
+        tracks_silence.append((silence_start, silence_stop, silence_duration))
+            
+    return tracks_silence
+
